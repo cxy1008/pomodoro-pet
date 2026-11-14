@@ -67,6 +67,7 @@
       font-size: 16px;
       cursor: pointer;
       transition: 0.2s;
+      touch-action: manipulation;
     }
     button:hover {
       opacity: 0.85;
@@ -89,7 +90,7 @@
     }
     input[type="number"]{
       width:70px;
-      padding:8;
+      padding:8px;
       border:1px solid #ddd;
       border-radius:8px;
       text-align:center;
@@ -173,6 +174,8 @@
     .pet-btn-row button {
       padding:4px 6px;
       font-size:11px;
+      touch-action: manipulation;
+      pointer-events:auto !important;
     }
     /* 鼓励气泡 */
     .pet-bubble {
@@ -216,7 +219,7 @@
     body.dark .pet-bubble::after {
       border-top-color: #2c3544;
     }
-    /* 小屋弹窗【纵向滚动】 提高z-index */
+    /* 小屋弹窗 */
     .nest {
       position: fixed;
       background:#fff;
@@ -261,6 +264,8 @@
       justify-content:center;
       font-size:24px;
       position:relative;
+      touch-action: manipulation;
+      pointer-events:auto !important;
     }
     .skin-opt.locked{
       filter:grayscale(1);
@@ -353,7 +358,6 @@
     </div>
   </div>
 
-  <!-- 小屋放到 petWrap 外面 -->
   <div class="nest" id="nestBox">
     <h4>🐾 宠物皮肤</h4>
     <div class="grid-row" id="skinGrid"></div>
@@ -398,7 +402,6 @@ const i18nMap = {
   }
 };
 
-// ========== 鼓励语列表 ==========
 const encouragementList = [
   "加油！你可以的！",
   "专注当下，超棒！",
@@ -417,7 +420,6 @@ const encouragementList = [
   "每一分钟都算数！"
 ];
 
-// ========== 皮肤列表｜最高100币解锁全部 ==========
 const skinList = [
   {emoji:"🐱", need:0,    name:"小猫"},
   {emoji:"🐶", need:6,    name:"小狗"},
@@ -438,7 +440,6 @@ const skinList = [
   {emoji:"🐲", need:100,  name:"小龙"}
 ];
 
-// ========== 商店付费食物 ==========
 const shopFoodList = [
   {emoji:"🍖", cost:2,  hunger:25, mood:15, name:"肉排"},
   {emoji:"🍗", cost:3,  hunger:28, mood:18, name:"炸鸡"},
@@ -460,7 +461,6 @@ const shopFoodList = [
   {emoji:"🧃", cost:2,  hunger:14, mood:18, name:"果汁"}
 ];
 
-// ========== 免费食物 ==========
 const freeFoodList = [
   {emoji:"🍎", cost:0, hunger:10, mood:3,  name:"苹果"},
   {emoji:"🍊", cost:0, hunger:9,  mood:4,  name:"橙子"},
@@ -506,7 +506,6 @@ const dom = {
   setCustomBtn:document.getElementById('setCustomBtn')
 };
 
-// ========== WebAudio 蜂鸣音 ==========
 let audioCtx = null;
 function initAudioCtx(){
   if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -563,7 +562,6 @@ function updateNestPos(){
   dom.nestBox.style.top = rect.bottom + 8 + "px";
 }
 
-// ========== 气泡鼓励语 ==========
 function showBubble(text, duration = 1800){
   dom.petBubble.textContent = text;
   dom.petBubble.classList.add('show');
@@ -572,13 +570,11 @@ function showBubble(text, duration = 1800){
     dom.petBubble.classList.remove('show');
   }, duration);
 }
-
 function randomEncouragement(){
   const text = encouragementList[Math.floor(Math.random() * encouragementList.length)];
   showBubble(text, 1800);
 }
 
-// ========== 计时器 ==========
 const timerSystem = {
   running:false,
   remain: 25 * 60,
@@ -653,7 +649,6 @@ const timerSystem = {
   }
 };
 
-// 饥饿衰减
 const petDecayTimer = setInterval(()=>{
   savedState.hunger = Math.max(0, savedState.hunger - 1);
   if(savedState.hunger < 30){
@@ -663,83 +658,62 @@ const petDecayTimer = setInterval(()=>{
   saveState(savedState);
 },30000);
 
-// ========== 拖动系统【PC鼠标 + 手机触摸 双支持】 ==========
+// ========== Pointer 拖动方案（重点修复：按钮不会被拖动事件拦截） ==========
 const dragSystem = {
   dragging:false,
   offsetX:0, offsetY:0,
   startX:0, startY:0,
   threshold:10,
   init(){
-    // 鼠标
-    dom.petWrap.addEventListener('mousedown',(e)=>{
-      this.startDrag(e.clientX, e.clientY, e);
+    dom.petWrap.addEventListener('pointerdown',(e)=>{
+      // 如果点的是按钮，直接跳过拖动逻辑，让按钮正常点击
+      if(e.target.tagName === 'BUTTON') return;
+      this.dragging = true;
+      this.startX = e.clientX;
+      this.startY = e.clientY;
+      const rect = dom.petWrap.getBoundingClientRect();
+      this.offsetX = e.clientX - rect.left;
+      this.offsetY = e.clientY - rect.top;
+      dom.petWrap.setPointerCapture(e.pointerId);
     });
-    window.addEventListener('mousemove',(e)=>{
-      this.onMove(e.clientX, e.clientY);
-    });
-    window.addEventListener('mouseup',(e)=>{
-      this.onEnd(e);
-    });
-
-    // 手机触摸
-    dom.petWrap.addEventListener('touchstart',(e)=>{
-      const t = e.changedTouches[0];
-      this.startDrag(t.clientX, t.clientY, e);
-    }, {passive:false});
-    window.addEventListener('touchmove',(e)=>{
+    dom.petWrap.addEventListener('pointermove',(e)=>{
       if(!this.dragging) return;
-      const t = e.changedTouches[0];
-      this.onMove(t.clientX, t.clientY);
-      e.preventDefault();
-    }, {passive:false});
-    window.addEventListener('touchend',(e)=>{
-      this.onEnd(e);
+      const dx = Math.abs(e.clientX - this.startX);
+      const dy = Math.abs(e.clientY - this.startY);
+      if(dx>this.threshold || dy>this.threshold){
+        let nx = e.clientX - this.offsetX;
+        let ny = e.clientY - this.offsetY;
+        const maxX = window.innerWidth - 120;
+        const maxY = window.innerHeight - 180;
+        nx = Math.max(0, Math.min(nx, maxX));
+        ny = Math.max(0, Math.min(ny, maxY));
+        dom.petWrap.style.left = nx + "px";
+        dom.petWrap.style.top = ny + "px";
+        dom.petWrap.style.right = "auto";
+        dom.petWrap.style.bottom = "auto";
+        savedState.petX = nx;
+        savedState.petY = ny;
+        saveState(savedState);
+        updateNestPos();
+      }
     });
-    window.addEventListener('touchcancel',(e)=>{
-      this.onEnd(e);
+    dom.petWrap.addEventListener('pointerup',(e)=>{
+      if(!this.dragging) return;
+      const dx = Math.abs(e.clientX - this.startX);
+      const dy = Math.abs(e.clientY - this.startY);
+      if(dx <= this.threshold && dy <= this.threshold){
+        dom.petPanel.classList.toggle('show');
+      }
+      this.dragging = false;
+      dom.petWrap.releasePointerCapture(e.pointerId);
     });
-  },
-  startDrag(x,y,e){
-    this.dragging = true;
-    this.startX = x;
-    this.startY = y;
-    const rect = dom.petWrap.getBoundingClientRect();
-    this.offsetX = x - rect.left;
-    this.offsetY = y - rect.top;
-  },
-  onMove(x,y){
-    if(!this.dragging) return;
-    const dx = Math.abs(x - this.startX);
-    const dy = Math.abs(y - this.startY);
-    if(dx>this.threshold || dy>this.threshold){
-      let nx = x - this.offsetX;
-      let ny = y - this.offsetY;
-      const maxX = window.innerWidth - 120;
-      const maxY = window.innerHeight - 180;
-      nx = Math.max(0, Math.min(nx, maxX));
-      ny = Math.max(0, Math.min(ny, maxY));
-      dom.petWrap.style.left = nx + "px";
-      dom.petWrap.style.top = ny + "px";
-      dom.petWrap.style.right = "auto";
-      dom.petWrap.style.bottom = "auto";
-      savedState.petX = nx;
-      savedState.petY = ny;
-      saveState(savedState);
-      updateNestPos();
-    }
-  },
-  onEnd(e){
-    if(!this.dragging) return;
-    const dx = Math.abs((e.clientX ?? e.changedTouches?.[0]?.clientX ?? 0) - this.startX);
-    const dy = Math.abs((e.clientY ?? e.changedTouches?.[0]?.clientY ?? 0) - this.startY);
-    if(dx <= this.threshold && dy <= this.threshold){
-      dom.petPanel.classList.toggle('show');
-    }
-    this.dragging = false;
+    dom.petWrap.addEventListener('pointercancel',(e)=>{
+      this.dragging = false;
+      dom.petWrap.releasePointerCapture(e.pointerId);
+    });
   }
 };
 
-// ========== 渲染皮肤 ==========
 function renderSkinGrid(){
   dom.skinGrid.innerHTML = "";
   skinList.forEach((skin, idx)=>{
@@ -763,7 +737,6 @@ function renderSkinGrid(){
   })
 }
 
-// ========== 渲染商店食物 ==========
 function renderShopGrid(){
   dom.shopGrid.innerHTML = "";
   shopFoodList.forEach(food=>{
@@ -789,7 +762,6 @@ function renderShopGrid(){
   })
 }
 
-// ========== 渲染免费食物 ==========
 function renderFreeFoodGrid(){
   dom.freeFoodGrid.innerHTML = "";
   freeFoodList.forEach(food=>{
@@ -861,12 +833,14 @@ function bindEvents(){
     timerSystem.mode = "custom";
     timerSystem.setSeconds(total);
   };
-  // 小屋按钮
+
+  // 小屋按钮，纯click，不被touch拦截
   dom.nestBtn.onclick = (e)=>{
     e.stopPropagation();
     dom.nestBox.classList.toggle('open');
     updateNestPos();
   };
+
   dom.clearState.onclick = ()=>{
     if(confirm(savedState.lang==="zh"?"确定清除所有保存数据？":"Clear all saved data?")){
       localStorage.removeItem(storageKey);
@@ -880,12 +854,9 @@ function bindEvents(){
     saveState(savedState);
   }
 
-  // ====== 新增：点击空白关闭小窝 ======
+  // 点击空白关闭小窝
   document.addEventListener('click', (e) => {
-    // 如果点击的是小屋内部、宠物包裹、小屋按钮，不关闭
-    if (dom.nestBox.contains(e.target) || dom.petWrap.contains(e.target)) {
-      return;
-    }
+    if (dom.nestBox.contains(e.target) || dom.petWrap.contains(e.target)) return;
     dom.nestBox.classList.remove('open');
   })
 }
@@ -923,6 +894,8 @@ init();
 </script>
 </body>
 </html>
+
+
 
 
 
