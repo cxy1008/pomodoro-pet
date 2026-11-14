@@ -89,7 +89,7 @@
     }
     input[type="number"]{
       width:70px;
-      padding:8px;
+      padding:8;
       border:1px solid #ddd;
       border-radius:8px;
       text-align:center;
@@ -126,6 +126,7 @@
       cursor: grab;
       user-select: none;
       z-index: 999;
+      touch-action: none;
     }
     .pet-wrap:active {
       cursor: grabbing;
@@ -141,7 +142,7 @@
       font-size:12px;
       box-shadow:0 4px 12px rgba(0,0,0,0.12);
       margin-top:4px;
-      display: none; /* 默认隐藏面板 */
+      display: none;
     }
     .pet-panel.show {
       display:block;
@@ -215,7 +216,7 @@
     body.dark .pet-bubble::after {
       border-top-color: #2c3544;
     }
-    /* 小屋弹窗【纵向滚动】 */
+    /* 小屋弹窗【纵向滚动】 提高z-index */
     .nest {
       position: fixed;
       background:#fff;
@@ -223,7 +224,7 @@
       border-radius:14px;
       box-shadow:0 4px 16px rgba(0,0,0,0.12);
       display:none;
-      z-index:998;
+      z-index:9999;
       max-width: 320px;
       max-height: 70vh;
       overflow-y: auto;
@@ -352,6 +353,7 @@
     </div>
   </div>
 
+  <!-- 小屋放到 petWrap 外面 -->
   <div class="nest" id="nestBox">
     <h4>🐾 宠物皮肤</h4>
     <div class="grid-row" id="skinGrid"></div>
@@ -504,6 +506,26 @@ const dom = {
   setCustomBtn:document.getElementById('setCustomBtn')
 };
 
+// ========== WebAudio 蜂鸣音 ==========
+let audioCtx = null;
+function initAudioCtx(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playDing(){
+  if(!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'sine';
+  osc.frequency.value = 880;
+  gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.4);
+}
+
 const storageKey = "pomodoroPetSaveCoinV3";
 const defaultState = {
   lang:"zh",
@@ -534,12 +556,6 @@ function saveState(state){
   localStorage.setItem(storageKey, JSON.stringify(state));
 }
 let savedState = loadState();
-
-const dingSound = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQAtkXNxQAT9p+FbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQAtkXNxQA==");
-function playDing(){
-  dingSound.currentTime = 0;
-  dingSound.play().catch(()=>{});
-}
 
 function updateNestPos(){
   const rect = dom.petWrap.getBoundingClientRect();
@@ -579,6 +595,7 @@ const timerSystem = {
     }
   },
   start(){
+    initAudioCtx();
     if(this.running) return;
     this.running = true;
     this.timerId = setInterval(()=>{
@@ -604,7 +621,6 @@ const timerSystem = {
     alert(savedState.lang==="zh"?"时间到！":"Time up!");
     const now = new Date().toLocaleString();
     let logText;
-    // ✅ 工作 和 自定义专注 都奖励番茄币
     if(this.mode === "work" || this.mode === "custom"){
       savedState.completed +=1;
       savedState.coin +=1;
@@ -647,52 +663,79 @@ const petDecayTimer = setInterval(()=>{
   saveState(savedState);
 },30000);
 
-// 拖动宠物 + 单击切换状态面板显示隐藏
+// ========== 拖动系统【PC鼠标 + 手机触摸 双支持】 ==========
 const dragSystem = {
   dragging:false,
   offsetX:0, offsetY:0,
-  clickTimer:null,
+  startX:0, startY:0,
+  threshold:10,
   init(){
+    // 鼠标
     dom.petWrap.addEventListener('mousedown',(e)=>{
-      this.dragging = true;
-      const rect = dom.petWrap.getBoundingClientRect();
-      this.offsetX = e.clientX - rect.left;
-      this.offsetY = e.clientY - rect.top;
-      // 单击检测
-      this.clickTimer = setTimeout(()=>{
-        this.clickTimer = null;
-      },200);
+      this.startDrag(e.clientX, e.clientY, e);
     });
     window.addEventListener('mousemove',(e)=>{
+      this.onMove(e.clientX, e.clientY);
+    });
+    window.addEventListener('mouseup',(e)=>{
+      this.onEnd(e);
+    });
+
+    // 手机触摸
+    dom.petWrap.addEventListener('touchstart',(e)=>{
+      const t = e.changedTouches[0];
+      this.startDrag(t.clientX, t.clientY, e);
+    }, {passive:false});
+    window.addEventListener('touchmove',(e)=>{
       if(!this.dragging) return;
-      if(this.clickTimer){
-        clearTimeout(this.clickTimer);
-        this.clickTimer = null;
-      }
-      let x = e.clientX - this.offsetX;
-      let y = e.clientY - this.offsetY;
+      const t = e.changedTouches[0];
+      this.onMove(t.clientX, t.clientY);
+      e.preventDefault();
+    }, {passive:false});
+    window.addEventListener('touchend',(e)=>{
+      this.onEnd(e);
+    });
+    window.addEventListener('touchcancel',(e)=>{
+      this.onEnd(e);
+    });
+  },
+  startDrag(x,y,e){
+    this.dragging = true;
+    this.startX = x;
+    this.startY = y;
+    const rect = dom.petWrap.getBoundingClientRect();
+    this.offsetX = x - rect.left;
+    this.offsetY = y - rect.top;
+  },
+  onMove(x,y){
+    if(!this.dragging) return;
+    const dx = Math.abs(x - this.startX);
+    const dy = Math.abs(y - this.startY);
+    if(dx>this.threshold || dy>this.threshold){
+      let nx = x - this.offsetX;
+      let ny = y - this.offsetY;
       const maxX = window.innerWidth - 120;
       const maxY = window.innerHeight - 180;
-      x = Math.max(0, Math.min(x, maxX));
-      y = Math.max(0, Math.min(y, maxY));
-      dom.petWrap.style.left = x + "px";
-      dom.petWrap.style.top = y + "px";
+      nx = Math.max(0, Math.min(nx, maxX));
+      ny = Math.max(0, Math.min(ny, maxY));
+      dom.petWrap.style.left = nx + "px";
+      dom.petWrap.style.top = ny + "px";
       dom.petWrap.style.right = "auto";
       dom.petWrap.style.bottom = "auto";
-      savedState.petX = x;
-      savedState.petY = y;
+      savedState.petX = nx;
+      savedState.petY = ny;
       saveState(savedState);
       updateNestPos();
-    });
-    window.addEventListener('mouseup',()=>{
-      if(this.dragging && this.clickTimer){
-        clearTimeout(this.clickTimer);
-        this.clickTimer = null;
-        // 单击宠物，切换面板显示隐藏
-        dom.petPanel.classList.toggle('show');
-      }
-      this.dragging = false;
-    });
+    }
+  },
+  onEnd(e){
+    if(!this.dragging) return;
+    const dx = Math.abs((e.clientX ?? e.changedTouches?.[0]?.clientX ?? 0) - this.startX);
+    const dy = Math.abs((e.clientY ?? e.changedTouches?.[0]?.clientY ?? 0) - this.startY);
+    if(dx <= this.threshold && dy <= this.threshold){
+      dom.petPanel.classList.toggle('show');
+    }
+    this.dragging = false;
   }
 };
 
@@ -818,7 +861,9 @@ function bindEvents(){
     timerSystem.mode = "custom";
     timerSystem.setSeconds(total);
   };
-  dom.nestBtn.onclick = ()=>{
+  // 小屋按钮
+  dom.nestBtn.onclick = (e)=>{
+    e.stopPropagation();
     dom.nestBox.classList.toggle('open');
     updateNestPos();
   };
@@ -834,6 +879,15 @@ function bindEvents(){
     renderHistory();
     saveState(savedState);
   }
+
+  // ====== 新增：点击空白关闭小窝 ======
+  document.addEventListener('click', (e) => {
+    // 如果点击的是小屋内部、宠物包裹、小屋按钮，不关闭
+    if (dom.nestBox.contains(e.target) || dom.petWrap.contains(e.target)) {
+      return;
+    }
+    dom.nestBox.classList.remove('open');
+  })
 }
 
 function applySaved(){
@@ -869,6 +923,7 @@ init();
 </script>
 </body>
 </html>
+
 
 
 
