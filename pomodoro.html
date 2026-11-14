@@ -141,6 +141,10 @@
       font-size:12px;
       box-shadow:0 4px 12px rgba(0,0,0,0.12);
       margin-top:4px;
+      display: none; /* 默认隐藏面板 */
+    }
+    .pet-panel.show {
+      display:block;
     }
     body.dark .pet-panel{
       background:#374151;
@@ -337,7 +341,7 @@
   <div class="pet-wrap" id="petWrap">
     <div class="pet-bubble" id="petBubble">加油！</div>
     <div class="pet" id="petChar">🐱</div>
-    <div class="pet-panel">
+    <div class="pet-panel" id="petPanel">
       <div><span data-i18n="hunger">饥饿</span></div>
       <div class="pet-bar hunger"><div id="hungerBar" style="width:80%"></div></div>
       <div><span data-i18n="mood">心情</span></div>
@@ -481,6 +485,7 @@ const dom = {
   petWrap:document.getElementById('petWrap'),
   petChar:document.getElementById('petChar'),
   petBubble:document.getElementById('petBubble'),
+  petPanel:document.getElementById('petPanel'),
   hungerBar:document.getElementById('hungerBar'),
   moodBar:document.getElementById('moodBar'),
   nestBtn:document.getElementById('nestBtn'),
@@ -642,19 +647,28 @@ const petDecayTimer = setInterval(()=>{
   saveState(savedState);
 },30000);
 
-// 拖动宠物
+// 拖动宠物 + 单击切换状态面板显示隐藏
 const dragSystem = {
   dragging:false,
   offsetX:0, offsetY:0,
+  clickTimer:null,
   init(){
     dom.petWrap.addEventListener('mousedown',(e)=>{
       this.dragging = true;
       const rect = dom.petWrap.getBoundingClientRect();
       this.offsetX = e.clientX - rect.left;
       this.offsetY = e.clientY - rect.top;
+      // 单击检测
+      this.clickTimer = setTimeout(()=>{
+        this.clickTimer = null;
+      },200);
     });
     window.addEventListener('mousemove',(e)=>{
       if(!this.dragging) return;
+      if(this.clickTimer){
+        clearTimeout(this.clickTimer);
+        this.clickTimer = null;
+      }
       let x = e.clientX - this.offsetX;
       let y = e.clientY - this.offsetY;
       const maxX = window.innerWidth - 120;
@@ -671,6 +685,12 @@ const dragSystem = {
       updateNestPos();
     });
     window.addEventListener('mouseup',()=>{
+      if(this.dragging && this.clickTimer){
+        clearTimeout(this.clickTimer);
+        this.clickTimer = null;
+        // 单击宠物，切换面板显示隐藏
+        dom.petPanel.classList.toggle('show');
+      }
       this.dragging = false;
     });
   }
@@ -849,6 +869,7 @@ init();
 </script>
 </body>
 </html>
+
 
 
 
